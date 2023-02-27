@@ -1,0 +1,57 @@
+# OD measurements for offset curves
+
+Let's have a look at the OD measurements now.
+
+```{r}
+library(data.table)
+library(ggplot2)
+theme_minimal() |> theme_set()
+
+ods <- fread("data/ODs_offset.csv")
+endpoints <- ods[, .SD[which.max(minutes)], by="well"]
+fwrite(endpoints[, .(well, minutes, OD600, offset=`Time_offset(min)`)], "data/OD_endpoints.csv")
+endpoints
+```
+
+```{r}
+ggplot(endpoints) +
+  aes(x=minutes/60, y=OD600, color=factor(`Time_offset(min)`), group=1) +
+  stat_smooth(color="gray", span=1/2) +
+  geom_point() +
+  geom_rug(sides="b", color="black") +
+  labs(x="time [h]", y="E. coli abundance [OD600]", color="offset [min]")
+ggsave("figures/od_curve.png", dpi=300)
+```
+
+Let's smooth the curves and get the derivatives.
+
+```{r, fig.width=4, fig.height=4}
+mod <- endpoints[, smooth.spline(minutes, OD600, spar=0.7)]
+smooth <- predict(mod, deriv=2) |> as.data.table()
+cuts <- c(smooth[y>0.5*max(y), max(x)], smooth[y<0.5*min(y), min(x)], smooth[y<0.5*min(y), max(x)])
+names(smooth) <- c("minutes", "second_derivative")
+smooth[, "group" := "stationary"]
+smooth[minutes <= cuts[1], "group" := "acceleration"]
+smooth[minutes > cuts[1] &  minutes <= cuts[2] , "group" := "mid-log"]
+smooth[minutes > cuts[2] & minutes <= cuts[3], "group" := "deceleration"]
+smooth[, "smooth_OD" := predict(mod)$y]
+smooth[, "first_derivative" := predict(mod, deriv=1)$y]
+merged <- smooth[endpoints, on="minutes"]
+merged[, "group" := factor(group, levels=c("acceleration", "mid-log", "deceleration", "stationary"))]
+top = merged[, max(OD600)]
+lowd = merged[, min(first_derivative)]
+sf = 1 / merged[, max(first_derivative - lowd)/top]
+ggplot(merged) +
+  aes(x=minutes, y=OD600, color=group) +
+  geom_point() +
+  geom_line(aes(y=smooth_OD), color="tomato", linetype="dashed", size=1) +
+  geom_line(aes(y = sf * (first_derivative - lowd)), color="black", linetype="dashed") +
+  scale_y_continuous(
+    name="OD600 [a.u.]",
+    sec.axis = sec_axis(trans=~(./sf + lowd) * 60, name="growth rate [1/h]")
+  ) +
+  labs(x="time [h]") + guides(color=FALSE)
+ggsave("figures/curves_and_derivs.png", dpi=300, width=4, height=4)
+
+print(cuts)
+```

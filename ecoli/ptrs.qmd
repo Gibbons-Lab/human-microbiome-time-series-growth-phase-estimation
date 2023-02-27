@@ -1,0 +1,118 @@
+# PTR-abundance correlations
+
+We start by reading in the PTR data and merging it with the OD data and the read counts.
+
+```{r}
+library(data.table)
+library(ggplot2)
+theme_minimal() |> theme_set()
+
+ptrs <- fread("data/rates.csv") |> melt(variable.name="sample_id", value.name="log2PTR")
+names(ptrs)[1] <- "reference"
+ptrs[, "well" := tstrsplit(sample_id, "_")[[1]]]
+ods <- fread("data/OD_endpoints.csv")
+abundances <- fread("data/reference_counts.csv")
+merged <- ods[abundances[ptrs, on="sample_id"], on="well"][!is.na(log2PTR)]
+merged[, "log_ratio" := 0.5*log(NC_000913.3+1) - 0.5 * log(phiX174+1)]
+cuts <- c(225, 300, 510)
+merged[, "group" := "stationary"]
+merged[minutes <= cuts[1], "group" := "acceleration"]
+merged[minutes > cuts[1] & minutes <= cuts[2], "group" := "mid-log"]
+merged[minutes > cuts[2] & minutes <= cuts[3], "group" := "deceleration"]
+merged[, "group" := factor(group, levels=c("acceleration", "mid-log", "deceleration", "stationary"))]
+merged
+```
+Let's have a look at the PTRs over time.
+
+```{r}
+ggplot(merged) +
+  aes(x=minutes/60, y=log2PTR, color=factor(offset), group=1) +
+  stat_smooth(span=1/2) +
+  geom_point() +
+  labs(x="time [h]", y="replication rate [log₂ PTR]", color="offset [min]")
+ggsave("figures/ptr_over_time.png", dpi=300)
+```
+
+Let's look at E. coli replication rates against E. coli abundance inferred from sequencing alone.
+
+```{r}
+ggplot(merged) +
+  aes(x=log_ratio, y=log2PTR, group=1) +
+  stat_smooth() +
+  geom_point() +
+  labs(x="E. coli abundance [centered log-ratio]", y="replication rate [log₂ PTR]")
+  geom_point()
+ggsave("figures/ptr_vs_clr.png", dpi=300)
+```
+And separated by group.
+
+```{r, fig.width=8, fig.height=3}
+ggplot(merged) +
+  aes(x=log_ratio, y=log2PTR, color=group) +
+  stat_smooth(method="lm") +
+  geom_point() +
+  labs(x="E. coli abundance [centered log-ratio]", y="replication rate [log₂ PTR]") +
+  facet_wrap(~ group, nrow=1, scale="free_x") +
+  guides(color = FALSE) +
+  theme(panel.spacing.x = unit(6, "mm"))
+ggsave("figures/ptr_vs_clr_groups.png", dpi=300, width=8, height=3)
+```
+
+With the corresponding tests.
+
+```{r, fig.width=4, fig.height=4}
+pearson = function(x, y) {
+  res <- cor.test(x, y)
+  return(list(
+    r = res$estimate,
+    n = res$parameter,
+    p = res$p.value,
+    conf_low = res$conf.int[1],
+    conf_high = res$conf.int[2]
+  ))
+}
+
+corrs <- merged[, pearson(log_ratio, log2PTR), by="group"]
+
+ggplot(corrs) +
+  aes(x=group, y=r, ymin=conf_low, ymax=conf_high, color=group) +
+  geom_hline(yintercept = 0, linetype="dashed", color="black") +
+  geom_linerange() +
+  geom_point(size=2) +
+  labs(x="", y="Pearson r") +
+  guides(color = FALSE) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+ggsave("figures/ptr_vs_clr_corrs.png", dpi=300, width=4, height=4)
+print(corrs)
+```
+
+And we can do the same for the OD data.
+
+```{r}
+ggplot(merged) +
+  aes(x=log2(OD600), y=log2PTR) +
+  stat_smooth(span=1/3) +
+  geom_point() +
+  labs(x="log₂ OD600", y="replication rate [log₂ PTR]")
+  geom_point()
+ggsave("figures/ptr_vs_od.png", dpi=300)
+```
+
+And separated by group.
+
+```{r}
+ggplot(merged) +
+  aes(x=log2(OD600), y=log2PTR, color=group) +
+  stat_smooth(method="lm") +
+  geom_point() +
+  labs(x="log₂ OD600", y="replication rate [log₂ PTR]") +
+  facet_wrap(~ group, scale="free_x", nrow=1)
+ggsave("figures/ptr_vs_od_groups.png", dpi=300)
+```
+
+And the tests.
+
+```{r}
+merged[, pearson(log2(OD600), log2PTR), by="group"]
+```

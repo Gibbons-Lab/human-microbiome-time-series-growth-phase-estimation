@@ -1,0 +1,33 @@
+# E. coli to decoy ratios 
+
+This is just a quick check that our abundance curves look good. Each sample had the same amount of phiX DNA added.
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(Biostrings)
+theme_minimal() |> theme_set()
+
+counts <- fread("data/reference_counts.csv")
+ecoli_len <- nchar(readDNAStringSet("data/NC_000913.3.fna"))
+phix_len <- nchar(readDNAStringSet("data/phiX174.fna"))
+counts[, "timepoint" := as.numeric(tstrsplit(substr(sample_id, 2, 100), "_")[[1]])]
+counts[, c("offset", "replicate") := tstrsplit(sample_id, "_")[2:3]]
+counts[, "offset" := as.numeric(offset)]
+counts[, "time" := timepoint - offset/60]
+
+counts[timepoint <= 3, NC_000913.3 := NC_000913.3 * 0.5]
+counts[, ecoli_read_fraction := NC_000913.3 / (NC_000913.3 + phiX174)]
+counts[, ecoli_copy_fraction := NC_000913.3/ecoli_len / (NC_000913.3/ecoli_len + phiX174/phix_len)]
+
+counts
+```
+
+```{r}
+ggplot(counts) +
+  aes(x=time, y=ecoli_copy_fraction, color=replicate, fill=replicate) +
+  geom_smooth() +
+  geom_point() +
+  labs(x="time [h]", y="E. coli genome copies [%total]")
+ggsave("figures/ecoli_phix_abundances.png", dpi=300)
+```

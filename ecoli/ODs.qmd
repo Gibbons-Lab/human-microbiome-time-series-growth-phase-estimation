@@ -42,14 +42,15 @@ top = merged[, max(OD600)]
 lowd = merged[, min(first_derivative)]
 sf = 1 / merged[, max(first_derivative - lowd)/top]
 ggplot(merged) +
-  aes(x=minutes, y=OD600, color=group) +
+  aes(x=minutes/60, y=OD600, color=group) +
   geom_point() +
-  geom_line(aes(y=smooth_OD), color="tomato", linetype="dashed", size=1) +
+  geom_line(aes(y=smooth_OD), color="orangered", linetype="dashed", size=1) +
   geom_line(aes(y = sf * (first_derivative - lowd)), color="black", linetype="dashed") +
   scale_y_continuous(
     name="OD600 [a.u.]",
     sec.axis = sec_axis(trans=~(./sf + lowd) * 60, name="growth rate [1/h]")
   ) +
+  scale_color_manual(values = c("orange", "grey70", "royalblue", "navy")) +
   labs(x="time [h]") + guides(color=FALSE)
 ggsave("figures/curves_and_derivs.png", dpi=300, width=4, height=4)
 

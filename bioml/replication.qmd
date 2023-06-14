@@ -1,0 +1,77 @@
+# Replication data
+
+Some overview of the replicatino rate data.
+
+```{r}
+library(data.table)
+library(ggplot2)
+
+theme_minimal() |> theme_set()
+```
+
+Let's read the log2(PTR) values merged with taxonomy information.
+
+```{r}
+rates <- fread("data/reads_and_rates.csv")
+rates[, "clr" := log(reads + 0.5) - mean(log(reads + 0.5)), by="sample_id"]
+rates <- rates[!is.na(log2_ptr)]
+
+meta <- fread("data/metadata.csv")[, .(Donor, sample_id, Sex, Age, BMI)]
+rates <- meta[rates, on="sample_id", nomatch=0]
+
+rates
+```
+
+Now we look at CLR vs logPTR
+
+```{r, fig.width=10, fig.height=10}
+ggplot(rates) +
+    aes(x=clr, y=log2_ptr, color=phylum) +
+    geom_point(alpha=0.3, stroke=0) +
+    stat_smooth(method="lm", color="black") +
+    facet_wrap(~ genus)
+    
+```
+
+```{r, fig.width=7, fig.height=4}
+ggplot(rates) +
+    aes(x=phylum, y=log2_ptr, color=phylum) +
+    geom_jitter(width=0.4, alpha=0.5, stroke=0, size=1) +
+    geom_boxplot(aes(fill=phylum), width=0.2, outlier.color = NA, color="black") +
+    labs(x="", y="replication rate [log₂ PTR]") +
+    coord_flip()
+ggsave("figures/ptr_vs_phylum.png", dpi=300, width=7, height=4)
+```
+
+```{r, fig.width=7, fig.height=4}
+ggplot(rates) +
+    aes(x=class, y=log2_ptr, color=class) +
+    geom_jitter(width=0.4, alpha=0.5, stroke=0, size=1) +
+    geom_boxplot(aes(fill=class), width=0.2, outlier.color = NA, color="black") +
+    labs(x="", y="replication rate [log₂ PTR]") +
+    coord_flip()
+ggsave("figures/ptr_vs_class.png", dpi=300, width=7, height=4)
+```
+An we run some ANOVAs for the taxonomic ranks.
+
+```{r}
+ranks <- c(NA, "kingdom", "phylum", "order", "class", "family", "genus", "species")
+
+stats = function(r) {
+    form <- as.formula(paste0("log2_ptr ~ clr +", r))
+    if (is.na(r)) {
+        form = log2_ptr ~ clr
+    } 
+    mod <- lm(form, data=rates)
+    av <- summary(mod)[[4]]
+    return(data.table(
+        rank = r,
+        clr_coef = av["clr", 1],
+        clr_p = av["clr", 4]
+    ))
+}
+
+regs <- rbindlist(lapply(ranks, stats))
+fwrite(regs, "data/ptr_clr_regressions.csv")
+regs
+```

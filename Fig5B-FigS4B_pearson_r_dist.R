@@ -50,7 +50,7 @@ plot_corr_coef = function(df, sliced = F){
       adjust = .5,
       width = .6, 
       ## set slab interval to show IQR and 95% data range
-      .width = c(.10, .90)
+      .width = c(.05, .95)
     ) + 
     
     coord_cartesian(xlim = c(1.2, NA))+
